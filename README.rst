@@ -2,11 +2,10 @@
 jsonschema
 ==========
 
-``jsonschema`` is an implementation of JSON Schema (currently in `Draft 3
-<http://tools.ietf.org/html/draft-zyp-json-schema-03>`_) for Python (supporting
-2.6+ including Python 3).
+``jsonschema`` is an implementation of `JSON Schema <http://json-schema.org>`_
+for Python (supporting 2.6+ including Python 3).
 
-.. code:: python
+.. code-block:: python
 
     >>> from jsonschema import validate
 
@@ -33,97 +32,50 @@ jsonschema
 Features
 --------
 
-* Full support for Draft 3 of the Schema
+* Full support for
+  `Draft 3 <https://python-jsonschema.readthedocs.org/en/latest/validate/#jsonschema.Draft3Validator>`_
+  **and** `Draft 4 <https://python-jsonschema.readthedocs.org/en/latest/validate/#jsonschema.Draft4Validator>`_
+  of the schema.
 
-* Lazy validation that can iteratively report *all* validation errors.
-
-.. code:: python
-
-    >>> from jsonschema import Draft3Validator
-    >>> schema = {
-    ...     "type" : "array",
-    ...     "items" : {"enum" : [1, 2, 3]},
-    ...     "maxItems" : 2,
-    ... }
-    >>> v = Draft3Validator(schema)
-    >>> for error in sorted(v.iter_errors([2, 3, 4]), key=str):
-    ...     print(error)
-    4 is not one of [1, 2, 3]
-    [2, 3, 4] is too long
+* `Lazy validation <https://python-jsonschema.readthedocs.org/en/latest/validate/#jsonschema.IValidator.iter_errors>`_
+  that can iteratively report *all* validation errors.
 
 * Small and extensible
 
-* Programmatic querying of which properties or items failed validation.
-
-.. code:: python
-
-    >>> from jsonschema import ErrorTree, Draft3Validator
-    >>> schema = {
-    ...     "type" : "array",
-    ...     "items" : {"type" : "number", "enum" : [1, 2, 3]},
-    ...     "minItems" : 3,
-    ... }
-    >>> instance = ["spam", 2]
-    >>> v = Draft3Validator(schema)
-    >>> tree = ErrorTree(v.iter_errors(instance))
-
-    >>> sorted(tree.errors)
-    ['minItems']
-
-    >>> 0 in tree
-    True
-
-    >>> 1 in tree
-    False
-
-    >>> sorted(tree[0].errors)
-    ['enum', 'type']
-
-    >>> print(tree[0].errors["type"].message)
-    'spam' is not of type 'number'
-
-
-Schema Versioning
------------------
-
-JSON Schema is, at the time of this writing, seemingly at Draft 3, with
-preparations for Draft 4 underway. As of right now, Draft 3 is the only
-supported version, and the default when validating. Preparations for
-implementing some Draft 4 support are in progress.
+* `Programmatic querying <https://python-jsonschema.readthedocs.org/en/latest/errors/#module-jsonschema>`_
+  of which properties or items failed validation.
 
 
 Release Notes
 -------------
 
-``v0.7`` introduces a number of changes.
+``v2.3.0`` removes the (improper) limitation of ``format`` to strings. It also
+adds the `jsonschema.exceptions.best_match <https://python-jsonschema.readthedocs.org/en/latest/errors/#best-match-and-by-relevance>`_
+function which can be used to guess at the best matching single validation
+error for a given instance.
 
-The most important one is that the ``Validator`` class is now **deprecated**.
 
-In its place is the ``Draft3Validator`` class (soon to be accompanied by others
-for other supported versions). This class accepts a schema when *initializing*,
-so that the new interface is::
+.. code-block:: python
 
-    validator = Draft3Validator(my_schema)
-    validator.validate(some_instance)
+    >>> from jsonschema.validators import Draft4Validator
+    >>> from jsonschema.exceptions import best_match
 
-Also, *no* meta-validation is done. If you want to check if a schema is valid,
-use the ``check_schema`` ``classmethod`` (i.e. use
-``Draft3Validator.check_schema(a_maybe_valid_schema)``).
+    >>> schema = {
+    ...     "properties" : {
+    ...         "foo" : {"type" : "string"},
+    ...         "bar" : {"properties" : {"baz": {"type": "string"}}},
+    ...     },
+    ... }
+    >>> instance = {"foo" : 12, "bar": {"baz" : 19}}
+    >>> print(best_match(Draft4Validator(schema).iter_errors(instance)).path)
+    deque(['foo'])
 
-The ``validate`` function of course still exists and continues to work as it
-did before::
 
-    from jsonschema import validate
-    validate(my_instance, my_schema)
+where the error closer to the top of the instance in ``foo`` was selected
+as being more relevant.
 
-There's just one exception: the ``meta_validate`` argument is deprecated,
-and meta-validation will now always be done. If you don't want to have it done,
-construct a validator directly as above.
-
-One last thing that is present is partial support for ``$ref``, at least for
-JSON Pointer refs. Full support should be coming soon.
-
-As always, if you find any bugs, please file a ticket.
+Also, URI references are now properly rejected by the URI format validator
+(i.e., it now only accepts full URIs, as defined in the specification).
 
 
 Running the Test Suite
@@ -140,6 +92,18 @@ supports. Note that you'll need to have all of those versions installed in
 order to run the tests on each of them, otherwise ``tox`` will skip (and fail)
 the tests on that version.
 
+Of course you're also free to just run the tests on a single version with your
+favorite test runner. The tests live in the ``jsonschema.tests`` package.
+
+
+Community
+---------
+
+There's a `mailing list <https://groups.google.com/forum/#!forum/jsonschema>`_
+for this implementation on Google Groups.
+
+Please join, and feel free to send questions there.
+
 
 Contributing
 ------------
@@ -153,3 +117,7 @@ it'd be most welcome!
 
 You can also generally find me on Freenode (nick: ``tos9``) in various
 channels, including ``#python``.
+
+If you feel overwhelmingly grateful, you can woo me with beer money on
+`Gittip <https://www.gittip.com/Julian/>`_ or via Google Wallet with the email
+in my GitHub profile.

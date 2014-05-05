@@ -1,4 +1,5 @@
 .DS_Store
+.idea
 
 *.pyc
 *.pyo
@@ -13,6 +14,10 @@ MANIFEST
 .coveragerc
 coverage
 htmlcov
+
+_cache
+_static
+_templates
 
 _trial_temp
 
