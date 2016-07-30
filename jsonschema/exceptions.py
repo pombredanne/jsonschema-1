@@ -27,6 +27,18 @@ class _Error(Exception):
         schema_path=(),
         parent=None,
     ):
+        super(_Error, self).__init__(
+            message,
+            validator,
+            path,
+            cause,
+            context,
+            validator_value,
+            instance,
+            schema,
+            schema_path,
+            parent,
+        )
         self.message = message
         self.path = self.relative_path = deque(path)
         self.schema_path = self.relative_schema_path = deque(schema_path)
@@ -48,9 +60,10 @@ class _Error(Exception):
         return unicode(self).encode("utf-8")
 
     def __unicode__(self):
-        if _unset in (
+        essential_for_verbose = (
             self.validator, self.validator_value, self.instance, self.schema,
-        ):
+        )
+        if any(m is _unset for m in essential_for_verbose):
             return self.message
 
         pschema = pprint.pformat(self.schema, width=72)
@@ -85,7 +98,7 @@ class _Error(Exception):
             return self.relative_path
 
         path = deque(self.relative_path)
-        path.extendleft(parent.absolute_path)
+        path.extendleft(reversed(parent.absolute_path))
         return path
 
     @property
@@ -95,7 +108,7 @@ class _Error(Exception):
             return self.relative_schema_path
 
         path = deque(self.relative_schema_path)
-        path.extendleft(parent.absolute_schema_path)
+        path.extendleft(reversed(parent.absolute_schema_path))
         return path
 
     def _set(self, **kwargs):
@@ -183,7 +196,7 @@ class ErrorTree(object):
                 container = container[element]
             container.errors[error.validator] = error
 
-            self._instance = error.instance
+            container._instance = error.instance
 
     def __contains__(self, index):
         """

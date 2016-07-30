@@ -1,4 +1,7 @@
+import textwrap
+
 from jsonschema import Draft4Validator, exceptions
+from jsonschema.compat import PY3
 from jsonschema.tests.compat import mock, unittest
 
 
@@ -248,6 +251,22 @@ class TestErrorTree(unittest.TestCase):
         tree = exceptions.ErrorTree([e1, e2])
         self.assertEqual(tree["bar"][0].errors, {"foo" : e1, "quux" : e2})
 
+    def test_regression_multiple_errors_with_instance(self):
+        e1, e2 = (
+            exceptions.ValidationError(
+                "1",
+                validator="foo",
+                path=["bar", "bar2"],
+                instance="i1"),
+            exceptions.ValidationError(
+                "2",
+                validator="quux",
+                path=["foobar", 2],
+                instance="i2"),
+        )
+        # Will raise an exception if the bug is still there.
+        exceptions.ErrorTree([e1, e2])
+
     def test_it_does_not_contain_subtrees_that_are_not_in_the_instance(self):
         error = exceptions.ValidationError("123", validator="foo", instance=[])
         tree = exceptions.ErrorTree([error])
@@ -268,3 +287,116 @@ class TestErrorTree(unittest.TestCase):
         )
         tree = exceptions.ErrorTree([error])
         self.assertIsInstance(tree["foo"], exceptions.ErrorTree)
+
+
+class TestErrorInitReprStr(unittest.TestCase):
+    def make_error(self, **kwargs):
+        defaults = dict(
+            message=u"hello",
+            validator=u"type",
+            validator_value=u"string",
+            instance=5,
+            schema={u"type": u"string"},
+        )
+        defaults.update(kwargs)
+        return exceptions.ValidationError(**defaults)
+
+    def assertShows(self, expected, **kwargs):
+        if PY3:
+            expected = expected.replace("u'", "'")
+        expected = textwrap.dedent(expected).rstrip("\n")
+
+        error = self.make_error(**kwargs)
+        message_line, _, rest = str(error).partition("\n")
+        self.assertEqual(message_line, error.message)
+        self.assertEqual(rest, expected)
+
+    def test_it_calls_super_and_sets_args(self):
+        error = self.make_error()
+        self.assertGreater(len(error.args), 1)
+
+    def test_repr(self):
+        self.assertEqual(
+            repr(exceptions.ValidationError(message="Hello!")),
+            "<ValidationError: %r>" % "Hello!",
+        )
+
+    def test_unset_error(self):
+        error = exceptions.ValidationError("message")
+        self.assertEqual(str(error), "message")
+
+        kwargs = {
+            "validator": "type",
+            "validator_value": "string",
+            "instance": 5,
+            "schema": {"type": "string"}
+        }
+        # Just the message should show if any of the attributes are unset
+        for attr in kwargs:
+            k = dict(kwargs)
+            del k[attr]
+            error = exceptions.ValidationError("message", **k)
+            self.assertEqual(str(error), "message")
+
+    def test_empty_paths(self):
+        self.assertShows(
+            """
+            Failed validating u'type' in schema:
+                {u'type': u'string'}
+
+            On instance:
+                5
+            """,
+            path=[],
+            schema_path=[],
+        )
+
+    def test_one_item_paths(self):
+        self.assertShows(
+            """
+            Failed validating u'type' in schema:
+                {u'type': u'string'}
+
+            On instance[0]:
+                5
+            """,
+            path=[0],
+            schema_path=["items"],
+        )
+
+    def test_multiple_item_paths(self):
+        self.assertShows(
+            """
+            Failed validating u'type' in schema[u'items'][0]:
+                {u'type': u'string'}
+
+            On instance[0][u'a']:
+                5
+            """,
+            path=[0, u"a"],
+            schema_path=[u"items", 0, 1],
+        )
+
+    def test_uses_pprint(self):
+        with mock.patch("pprint.pformat") as pformat:
+            str(self.make_error())
+            self.assertEqual(pformat.call_count, 2)  # schema + instance
+
+    def test_str_works_with_instances_having_overriden_eq_operator(self):
+        """
+        Check for https://github.com/Julian/jsonschema/issues/164 which
+        rendered exceptions unusable when a `ValidationError` involved
+        instances with an `__eq__` method that returned truthy values.
+
+        """
+
+        instance = mock.MagicMock()
+        error = exceptions.ValidationError(
+            "a message",
+            validator="foo",
+            instance=instance,
+            validator_value="some",
+            schema="schema",
+        )
+        str(error)
+        self.assertFalse(instance.__eq__.called)

@@ -1,9 +1,16 @@
+.. image:: https://img.shields.io/pypi/v/jsonschema.svg
+    :target: https://pypi.python.org/pypi/jsonschema
+.. image:: https://travis-ci.org/Julian/jsonschema.svg?branch=master
+    :target: https://travis-ci.org/Julian/jsonschema
+.. image:: https://img.shields.io/pypi/l/jsonschema.svg
+    :target: https://pypi.python.org/pypi/jsonschema
+
 ==========
 jsonschema
 ==========
 
 ``jsonschema`` is an implementation of `JSON Schema <http://json-schema.org>`_
-for Python (supporting 2.6+ including Python 3).
+for Python (supporting 2.7+ including Python 3).
 
 .. code-block:: python
 
@@ -33,60 +40,34 @@ Features
 --------
 
 * Full support for
-  `Draft 3 <https://python-jsonschema.readthedocs.org/en/latest/validate/#jsonschema.Draft3Validator>`_
-  **and** `Draft 4 <https://python-jsonschema.readthedocs.org/en/latest/validate/#jsonschema.Draft4Validator>`_
+  `Draft 3 <https://python-jsonschema.readthedocs.io/en/latest/validate/#jsonschema.Draft3Validator>`_
+  **and** `Draft 4 <https://python-jsonschema.readthedocs.io/en/latest/validate/#jsonschema.Draft4Validator>`_
   of the schema.
 
-* `Lazy validation <https://python-jsonschema.readthedocs.org/en/latest/validate/#jsonschema.IValidator.iter_errors>`_
+* `Lazy validation <https://python-jsonschema.readthedocs.io/en/latest/validate/#jsonschema.IValidator.iter_errors>`_
   that can iteratively report *all* validation errors.
 
 * Small and extensible
 
-* `Programmatic querying <https://python-jsonschema.readthedocs.org/en/latest/errors/#module-jsonschema>`_
+* `Programmatic querying <https://python-jsonschema.readthedocs.io/en/latest/errors/#module-jsonschema>`_
   of which properties or items failed validation.
 
 
 Release Notes
 -------------
 
-``v2.3.0`` removes the (improper) limitation of ``format`` to strings. It also
-adds the `jsonschema.exceptions.best_match <https://python-jsonschema.readthedocs.org/en/latest/errors/#best-match-and-by-relevance>`_
-function which can be used to guess at the best matching single validation
-error for a given instance.
+Version 2.5.0 is mainly a performance release. The interface for `RefResolver`
+was extended to add methods that improve performance on CPython.
 
-
-.. code-block:: python
-
-    >>> from jsonschema.validators import Draft4Validator
-    >>> from jsonschema.exceptions import best_match
-
-    >>> schema = {
-    ...     "properties" : {
-    ...         "foo" : {"type" : "string"},
-    ...         "bar" : {"properties" : {"baz": {"type": "string"}}},
-    ...     },
-    ... }
-    >>> instance = {"foo" : 12, "bar": {"baz" : 19}}
-    >>> print(best_match(Draft4Validator(schema).iter_errors(instance)).path)
-    deque(['foo'])
-
-
-where the error closer to the top of the instance in ``foo`` was selected
-as being more relevant.
-
-Also, URI references are now properly rejected by the URI format validator
-(i.e., it now only accepts full URIs, as defined in the specification).
+Support for custom `RefResolver` objects with the legacy interface should *not*
+be affected. If you notice something amiss please file an issue ticket.
 
 
 Running the Test Suite
 ----------------------
 
-``jsonschema`` uses the wonderful `Tox <http://tox.readthedocs.org>`_ for its
-test suite. (It really is wonderful, if for some reason you haven't heard of
-it, you really should use it for your projects).
-
-Assuming you have ``tox`` installed (perhaps via ``pip install tox`` or your
-package manager), just run ``tox`` in the directory of your source checkout to
+If you have ``tox`` installed (perhaps via ``pip install tox`` or your
+package manager), running``tox`` in the directory of your source checkout will
 run ``jsonschema``'s test suite on all of the versions of Python ``jsonschema``
 supports. Note that you'll need to have all of those versions installed in
 order to run the tests on each of them, otherwise ``tox`` will skip (and fail)

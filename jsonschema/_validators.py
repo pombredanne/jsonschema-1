@@ -5,9 +5,6 @@ from jsonschema.exceptions import FormatError, ValidationError
 from jsonschema.compat import iteritems
 
 
-FLOAT_TOLERANCE = 10 ** -15
-
-
 def patternProperties(validator, patternProperties, instance, schema):
     if not validator.is_type(instance, "object"):
         return
@@ -77,10 +74,10 @@ def minimum(validator, minimum, instance, schema):
         return
 
     if schema.get("exclusiveMinimum", False):
-        failed = float(instance) <= minimum
+        failed = instance <= minimum
         cmp = "less than or equal to"
     else:
-        failed = float(instance) < minimum
+        failed = instance < minimum
         cmp = "less than"
 
     if failed:
@@ -94,10 +91,10 @@ def maximum(validator, maximum, instance, schema):
         return
 
     if schema.get("exclusiveMaximum", False):
-        failed = float(instance) >= maximum
+        failed = instance >= maximum
         cmp = "greater than or equal to"
     else:
-        failed = float(instance) > maximum
+        failed = instance > maximum
         cmp = "greater than"
 
     if failed:
@@ -111,8 +108,8 @@ def multipleOf(validator, dB, instance, schema):
         return
 
     if isinstance(dB, float):
-        mod = instance % dB
-        failed = (mod > FLOAT_TOLERANCE) and (dB - mod) > FLOAT_TOLERANCE
+        quotient = instance / dB
+        failed = int(quotient) != quotient
     else:
         failed = instance % dB
 
@@ -136,7 +133,7 @@ def uniqueItems(validator, uI, instance, schema):
         validator.is_type(instance, "array") and
         not _utils.uniq(instance)
     ):
-        yield ValidationError("%r has non-unique elements" % instance)
+        yield ValidationError("%r has non-unique elements" % (instance,))
 
 
 def pattern(validator, patrn, instance, schema):
@@ -193,9 +190,20 @@ def enum(validator, enums, instance, schema):
 
 
 def ref(validator, ref, instance, schema):
-    with validator.resolver.resolving(ref) as resolved:
-        for error in validator.descend(instance, resolved):
-            yield error
+    resolve = getattr(validator.resolver, "resolve", None)
+    if resolve is None:
+        with validator.resolver.resolving(ref) as resolved:
+            for error in validator.descend(instance, resolved):
+                yield error
+    else:
+        scope, resolved = validator.resolver.resolve(ref)
+        validator.resolver.push_scope(scope)
+
+        try:
+            for error in validator.descend(instance, resolved):
+                yield error
+        finally:
+            validator.resolver.pop_scope()
 
 
 def type_draft3(validator, types, instance, schema):

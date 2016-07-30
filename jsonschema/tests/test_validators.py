@@ -1,10 +1,8 @@
 from collections import deque
 from contextlib import contextmanager
 import json
-import textwrap
 
 from jsonschema import FormatChecker, ValidationError
-from jsonschema.compat import PY3
 from jsonschema.tests.compat import mock, unittest
 from jsonschema.validators import (
     RefResolutionError, UnknownType, Draft3Validator,
@@ -192,96 +190,6 @@ class TestValidationErrorMessages(unittest.TestCase):
         self.assertIn(repr("bla"), message)
         self.assertIn(repr("thing"), message)
         self.assertIn("is not a", message)
-
-
-class TestErrorReprStr(unittest.TestCase):
-    def make_error(self, **kwargs):
-        defaults = dict(
-            message=u"hello",
-            validator=u"type",
-            validator_value=u"string",
-            instance=5,
-            schema={u"type": u"string"},
-        )
-        defaults.update(kwargs)
-        return ValidationError(**defaults)
-
-    def assertShows(self, expected, **kwargs):
-        if PY3:
-            expected = expected.replace("u'", "'")
-        expected = textwrap.dedent(expected).rstrip("\n")
-
-        error = self.make_error(**kwargs)
-        message_line, _, rest = str(error).partition("\n")
-        self.assertEqual(message_line, error.message)
-        self.assertEqual(rest, expected)
-
-    def test_repr(self):
-        self.assertEqual(
-            repr(ValidationError(message="Hello!")),
-            "<ValidationError: %r>" % "Hello!",
-        )
-
-    def test_unset_error(self):
-        error = ValidationError("message")
-        self.assertEqual(str(error), "message")
-
-        kwargs = {
-            "validator": "type",
-            "validator_value": "string",
-            "instance": 5,
-            "schema": {"type": "string"}
-        }
-        # Just the message should show if any of the attributes are unset
-        for attr in kwargs:
-            k = dict(kwargs)
-            del k[attr]
-            error = ValidationError("message", **k)
-            self.assertEqual(str(error), "message")
-
-    def test_empty_paths(self):
-        self.assertShows(
-            """
-            Failed validating u'type' in schema:
-                {u'type': u'string'}
-
-            On instance:
-                5
-            """,
-            path=[],
-            schema_path=[],
-        )
-
-    def test_one_item_paths(self):
-        self.assertShows(
-            """
-            Failed validating u'type' in schema:
-                {u'type': u'string'}
-
-            On instance[0]:
-                5
-            """,
-            path=[0],
-            schema_path=["items"],
-        )
-
-    def test_multiple_item_paths(self):
-        self.assertShows(
-            """
-            Failed validating u'type' in schema[u'items'][0]:
-                {u'type': u'string'}
-
-            On instance[0][u'a']:
-                5
-            """,
-            path=[0, u"a"],
-            schema_path=[u"items", 0, 1],
-        )
-
-    def test_uses_pprint(self):
-        with mock.patch("pprint.pformat") as pformat:
-            str(self.make_error())
-            self.assertEqual(pformat.call_count, 2)  # schema + instance
 
 
 class TestValidationErrorDetails(unittest.TestCase):
@@ -517,6 +425,106 @@ class TestValidationErrorDetails(unittest.TestCase):
         self.assertEqual(e5.validator, "minItems")
         self.assertEqual(e6.validator, "enum")
 
+    def test_recursive(self):
+        schema = {
+            "definitions": {
+                "node": {
+                    "anyOf": [{
+                        "type": "object",
+                        "required": ["name", "children"],
+                        "properties": {
+                            "name": {
+                                "type": "string",
+                            },
+                            "children": {
+                                "type": "object",
+                                "patternProperties": {
+                                    "^.*$": {
+                                        "$ref": "#/definitions/node",
+                                    },
+                                },
+                            },
+                        },
+                    }],
+                },
+            },
+            "type": "object",
+            "required": ["root"],
+            "properties": {
+                "root": {"$ref": "#/definitions/node"},
+            }
+        }
+
+        instance = {
+            "root": {
+                "name": "root",
+                "children": {
+                    "a": {
+                        "name": "a",
+                        "children": {
+                            "ab": {
+                                "name": "ab",
+                                # missing "children"
+                            }
+                        }
+                    },
+                },
+            },
+        }
+        validator = Draft4Validator(schema)
+
+        e, = validator.iter_errors(instance)
+        self.assertEqual(e.absolute_path, deque(["root"]))
+        self.assertEqual(
+            e.absolute_schema_path, deque(["properties", "root", "anyOf"]),
+        )
+
+        e1, = e.context
+        self.assertEqual(e1.absolute_path, deque(["root", "children", "a"]))
+        self.assertEqual(
+            e1.absolute_schema_path, deque(
+                [
+                    "properties",
+                    "root",
+                    "anyOf",
+                    0,
+                    "properties",
+                    "children",
+                    "patternProperties",
+                    "^.*$",
+                    "anyOf",
+                ],
+            ),
+        )
+
+        e2, = e1.context
+        self.assertEqual(
+            e2.absolute_path, deque(
+                ["root", "children", "a", "children", "ab"],
+            ),
+        )
+        self.assertEqual(
+            e2.absolute_schema_path, deque(
+                [
+                    "properties",
+                    "root",
+                    "anyOf",
+                    0,
+                    "properties",
+                    "children",
+                    "patternProperties",
+                    "^.*$",
+                    "anyOf",
+                    0,
+                    "properties",
+                    "children",
+                    "patternProperties",
+                    "^.*$",
+                    "anyOf"
+                ],
+            ),
+        )
+
     def test_additionalProperties(self):
         instance = {"bar": "bar", "foo": 2}
         schema = {
@@ -625,16 +633,31 @@ class ValidatorTestMixin(object):
         resolver = RefResolver("", {})
         schema = {"$ref" : mock.Mock()}
 
-        @contextmanager
-        def resolving():
-            yield {"type": "integer"}
-
-        with mock.patch.object(resolver, "resolving") as resolve:
-            resolve.return_value = resolving()
+        with mock.patch.object(resolver, "resolve") as resolve:
+            resolve.return_value = "url", {"type": "integer"}
             with self.assertRaises(ValidationError):
                 self.validator_class(schema, resolver=resolver).validate(None)
 
         resolve.assert_called_once_with(schema["$ref"])
+
+    def test_it_delegates_to_a_legacy_ref_resolver(self):
+        """
+        Legacy RefResolvers support only the context manager form of
+        resolution.
+
+        """
+
+        class LegacyRefResolver(object):
+            @contextmanager
+            def resolving(this, ref):
+                self.assertEqual(ref, "the ref")
+                yield {"type" : "integer"}
+
+        resolver = LegacyRefResolver()
+        schema = {"$ref" : "the ref"}
+
+        with self.assertRaises(ValidationError):
+            self.validator_class(schema, resolver=resolver).validate(None)
 
     def test_is_type_is_true_for_valid_type(self):
         self.assertTrue(self.validator.is_type("foo", "string"))
@@ -767,11 +790,11 @@ class TestRefResolver(unittest.TestCase):
             self.assertEqual(resolved, self.referrer["properties"]["foo"])
 
     def test_it_resolves_local_refs_with_id(self):
-        schema = {"id": "foo://bar/schema#", "a": {"foo": "bar"}}
+        schema = {"id": "http://bar/schema#", "a": {"foo": "bar"}}
         resolver = RefResolver.from_schema(schema)
         with resolver.resolving("#/a") as resolved:
             self.assertEqual(resolved, schema["a"])
-        with resolver.resolving("foo://bar/schema#/a") as resolved:
+        with resolver.resolving("http://bar/schema#/a") as resolved:
             self.assertEqual(resolved, schema["a"])
 
     def test_it_retrieves_stored_refs(self):
@@ -808,6 +831,7 @@ class TestRefResolver(unittest.TestCase):
         schema = {"id" : "foo"}
         resolver = RefResolver.from_schema(schema)
         self.assertEqual(resolver.base_uri, "foo")
+        self.assertEqual(resolver.resolution_scope, "foo")
         with resolver.resolving("") as resolved:
             self.assertEqual(resolved, schema)
         with resolver.resolving("#") as resolved:
@@ -821,6 +845,7 @@ class TestRefResolver(unittest.TestCase):
         schema = {}
         resolver = RefResolver.from_schema(schema)
         self.assertEqual(resolver.base_uri, "")
+        self.assertEqual(resolver.resolution_scope, "")
         with resolver.resolving("") as resolved:
             self.assertEqual(resolved, schema)
         with resolver.resolving("#") as resolved:
@@ -855,9 +880,7 @@ class TestRefResolver(unittest.TestCase):
         )
         with resolver.resolving(ref):
             pass
-        with resolver.resolving(ref):
-            pass
-        self.assertEqual(foo_handler.call_count, 2)
+        self.assertEqual(foo_handler.call_count, 1)
 
     def test_if_you_give_it_junk_you_get_a_resolution_error(self):
         ref = "foo://bar"
@@ -867,6 +890,39 @@ class TestRefResolver(unittest.TestCase):
             with resolver.resolving(ref):
                 pass
         self.assertEqual(str(err.exception), "Oh no! What's this?")
+
+    def test_helpful_error_message_on_failed_pop_scope(self):
+        resolver = RefResolver("", {})
+        resolver.pop_scope()
+        with self.assertRaises(RefResolutionError) as exc:
+            resolver.pop_scope()
+        self.assertIn("Failed to pop the scope", str(exc.exception))
+
+
+class UniqueTupleItemsMixin(object):
+    """
+    A tuple instance properly formats validation errors for uniqueItems.
+
+    See https://github.com/Julian/jsonschema/pull/224
+
+    """
+
+    def test_it_properly_formats_an_error_message(self):
+        validator = self.validator_class(
+            schema={"uniqueItems" : True},
+            types={"array" : (tuple,)},
+        )
+        with self.assertRaises(ValidationError) as e:
+            validator.validate((1, 1))
+        self.assertIn("(1, 1) has non-unique elements", str(e.exception))
+
+
+class TestDraft4UniqueTupleItems(UniqueTupleItemsMixin, unittest.TestCase):
+    validator_class = Draft4Validator
+
+
+class TestDraft3UniqueTupleItems(UniqueTupleItemsMixin, unittest.TestCase):
+    validator_class = Draft3Validator
 
 
 def sorted_errors(errors):
